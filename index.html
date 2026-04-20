@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>생산2팀 FIFO 대시보드 (진우진 AI 연동)</title>
+    <title>생산2팀 FIFO 대시보드 - 최종 승부수</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
@@ -20,24 +20,27 @@
 <body>
 
     <header class="bg-[#1a1c2e] text-white px-6 py-3 flex justify-between items-center shadow-lg">
-        <h1 class="text-xl font-bold"><i class="fas fa-warehouse text-blue-400 mr-2"></i> 생산2팀 FIFO 관리 대시보드</h1>
-        <button onclick="fetchData()" class="bg-indigo-600 px-4 py-2 rounded text-xs font-bold flex items-center gap-2 hover:bg-indigo-700">
-            <i class="fas fa-sync-alt" id="refresh-icon"></i> 실시간 데이터 새로고침
-        </button>
+        <h1 class="text-xl font-bold"><i class="fas fa-warehouse text-blue-400 mr-2"></i> 생산2팀 FIFO 관리 대시보드 (진우진 AI)</h1>
+        <div class="flex items-center gap-4">
+            <div id="debug-status" class="text-[10px] bg-slate-700 px-2 py-1 rounded text-slate-300">연동 대기 중</div>
+            <button onclick="fetchData()" class="bg-indigo-600 px-4 py-2 rounded text-xs font-bold flex items-center gap-2 hover:bg-indigo-700">
+                <i class="fas fa-sync-alt" id="refresh-icon"></i> 데이터 새로고침
+            </button>
+        </div>
     </header>
 
     <main class="flex-1 flex gap-4 p-4 overflow-hidden" id="board-container">
-        <div class="w-full text-center py-20 text-slate-400">구글 시트 데이터를 분석 중입니다...</div>
+        <div class="w-full text-center py-20 text-slate-400 font-bold">시트 연동을 시작합니다...</div>
     </main>
 
     <script>
-        // 사용자님이 주신 최신 GID 주소
         const DATA_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTxJoIbArdj4_BDnV6wxNgLd3k55kbagI1rIdqqBBW5WMb63lHFh3K-UWoPpBwbUeRXjt9B5ieNXa05/pub?gid=738426718&single=true&output=csv";
         
-        const LIMITS = { 1: 30, 2: 45, 3: 45, 4: 60 }; // 보관기준: 과립, 타정, 코팅, 선별/포장
+        const LIMITS = { 1: 30, 2: 45, 3: 45, 4: 60 };
 
         function fetchData() {
             const icon = document.getElementById('refresh-icon');
+            const debug = document.getElementById('debug-status');
             icon.classList.add('fa-spin');
             
             Papa.parse(DATA_URL, {
@@ -45,11 +48,15 @@
                 header: true,
                 skipEmptyLines: true,
                 complete: function(results) {
-                    render(results.data);
-                    icon.classList.remove('fa-spin');
-                },
-                error: function() {
-                    alert("시트 연동 실패! 웹 게시 설정(CSV)을 확인해주세요.");
+                    console.log("시트 데이터 확인:", results.data);
+                    if (results.data && results.data.length > 0) {
+                        debug.innerText = `성공: ${results.data.length}건`;
+                        debug.className = "text-[10px] bg-green-700 px-2 py-1 rounded text-white";
+                        render(results.data);
+                    } else {
+                        debug.innerText = "데이터 없음";
+                        debug.className = "text-[10px] bg-red-700 px-2 py-1 rounded text-white";
+                    }
                     icon.classList.remove('fa-spin');
                 }
             });
@@ -68,40 +75,46 @@
 
             data.forEach(row => {
                 const keys = Object.keys(row);
-                // [핵심 수정] 열 이름이 달라도 순서대로 데이터를 매칭 (첫번째:제품명, 두번째:제조번호, 세번째:공정, 네번째:경과일)
-                let name = (row['제품명'] || row[keys[0]] || "").trim();
-                let lot = (row['제조번호'] || row[keys[1]] || "").trim();
-                let proc = (row['완료공정'] || row[keys[2]] || "").trim();
-                let elapsed = parseInt(row['전공정경과일']) || parseInt(row[keys[3]]) || 0;
+                // [무조건 연동 로직] 제목 이름이 달라도 위치나 키워드로 강제 추출
+                let name = "", lot = "", proc = "", elapsed = 0;
 
-                if (!name || name === "제품명") return;
+                keys.forEach((k, idx) => {
+                    const val = String(row[k]).trim();
+                    const keyName = k.replace(/\s/g, ""); // 공백 제거
 
-                let colIdx = 0;
+                    if (keyName.includes("제품") || idx === 0) name = name || val;
+                    if (keyName.includes("제조") || keyName.includes("LOT") || idx === 1) lot = lot || val;
+                    if ((keyName.includes("공정") && !keyName.includes("경과")) || idx === 2) proc = proc || val;
+                    if (keyName.includes("경과") || idx === 3) elapsed = elapsed || (parseInt(val) || 0);
+                });
+
+                if (!name || name === "제품명" || name === "undefined") return;
+
+                // 공정별 칸 배치 (글자가 포함만 되어도 분류)
+                let colIdx = 4; // 기본은 4번 칸
                 if (proc.includes('과립')) colIdx = 1;
                 else if (proc.includes('타정')) colIdx = 2;
                 else if (proc.includes('코팅')) colIdx = 3;
                 else if (proc.includes('선별') || proc.includes('포장') || proc.includes('충전')) colIdx = 4;
 
-                if (colIdx > 0) {
-                    const limit = LIMITS[colIdx];
-                    const remaining = limit - elapsed;
-                    let statusClass = 'status-safe', textColor = 'text-green-600';
-                    if (remaining <= 7) { statusClass = 'status-danger'; textColor = 'text-red-600'; }
-                    else if (remaining <= 14) { statusClass = 'status-warning'; textColor = 'text-yellow-600'; }
+                const limit = LIMITS[colIdx];
+                const remaining = limit - elapsed;
+                let statusClass = 'status-safe', textColor = 'text-green-600';
+                if (remaining <= 7) { statusClass = 'status-danger'; textColor = 'text-red-600'; }
+                else if (remaining <= 14) { statusClass = 'status-warning'; textColor = 'text-yellow-600'; }
 
-                    const card = `
-                        <div class="lot-card ${statusClass}">
-                            <div class="flex justify-between items-start">
-                                <h4 class="font-bold text-slate-800 text-sm">${name}</h4>
-                                <span class="text-lg font-black ${textColor}">D-${remaining}</span>
-                            </div>
-                            <div class="flex justify-between text-[10px] mt-1 text-slate-500">
-                                <span>Lot: ${lot}</span>
-                                <span>${elapsed}일 경과 / 한도 ${limit}일</span>
-                            </div>
-                        </div>`;
-                    cols[colIdx-1].insertAdjacentHTML('beforeend', card);
-                }
+                const cardHtml = `
+                    <div class="lot-card ${statusClass}">
+                        <div class="flex justify-between items-start">
+                            <h4 class="font-bold text-slate-800 text-sm">${name}</h4>
+                            <span class="text-lg font-black ${textColor}">D-${remaining}</span>
+                        </div>
+                        <div class="flex justify-between text-[10px] mt-1 text-slate-500">
+                            <span>Lot: ${lot}</span>
+                            <span>${elapsed}일 경과</span>
+                        </div>
+                    </div>`;
+                cols[colIdx-1].insertAdjacentHTML('beforeend', cardHtml);
             });
         }
         window.onload = fetchData;
