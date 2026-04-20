@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>생산2팀 FIFO 대시보드 (진우진 AI 연동)</title>
+    <title>생산2팀 FIFO 대시보드 (실시간 연동)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
@@ -37,8 +37,8 @@
     </main>
 
     <script>
-        // [진우진 AI 시트 전용 CSV 주소]
-        const DATA_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQIrUB61owG33Oqyufj_sdspRfpGv-tyWzesMqRrL2l0aV3gUa5AD45X2vtnKJzdw-Hytk8K63JMrPQ/pub?gid=738426718&single=true&output=csv";
+        // [사용자가 제공한 새로운 CSV 주소 적용]
+        const DATA_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTxJoIbArdj4_BDnV6wxNgLd3k55kbagI1rIdqqBBW5WMb63lHFh3K-UWoPpBwbUeRXjt9B5ieNXa05/pub?output=csv";
 
         // 보관 기준 (일수)
         const LIMITS = { '과립': 30, '타정': 45, '코팅': 45, '선별': 60, '포장': 60 };
@@ -55,6 +55,10 @@
                 skipEmptyLines: true,
                 complete: function(results) {
                     renderBoard(results.data);
+                    icon.classList.remove('fa-spin');
+                },
+                error: function() {
+                    alert("데이터를 불러오지 못했습니다. 시트가 '웹에 게시(CSV)' 되었는지 확인하세요.");
                     icon.classList.remove('fa-spin');
                 }
             });
@@ -76,9 +80,10 @@
             });
 
             data.forEach(row => {
-                const name = row['제품명'] || row['제품'];
-                const lot = row['제조번호'] || row['LOT'];
-                const proc = row['완료공정'] || '';
+                // 시트의 열 이름과 매칭 (수식 결과값 포함)
+                const name = (row['제품명'] || row['제품'] || '').trim();
+                const lot = (row['제조번호'] || row['LOT'] || '').trim();
+                const proc = (row['완료공정'] || '').trim();
                 const elapsed = parseInt(row['전공정경과일']) || 0;
 
                 if (!name) return;
@@ -90,6 +95,7 @@
 
                 const limit = LIMITS[targetCol] || 30;
                 const remaining = limit - elapsed;
+                
                 let statusClass = 'status-safe';
                 if (remaining <= 7) statusClass = 'status-danger';
                 else if (remaining <= 14) statusClass = 'status-warning';
@@ -108,4 +114,5 @@
         }
     </script>
 </body>
+</html>
 </html>
