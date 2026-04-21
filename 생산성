@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>생산2팀 생산성 현황</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <style>
+        body { font-family: 'Pretendard', sans-serif; background-color: #f4f7f9; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        header { text-align: center; margin-bottom: 30px; }
+        h1 { color: #2c3e50; font-size: 24pt; border-bottom: 3px solid #3498db; display: inline-block; padding-bottom: 10px; }
+        .dashboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .card h2 { font-size: 14pt; color: #34495e; margin-top: 0; margin-bottom: 20px; border-left: 5px solid #3498db; padding-left: 10px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 12px; text-align: center; border-bottom: 1px solid #eee; }
+        th { background-color: #f8f9fa; font-weight: bold; }
+        .yield-high { color: #27ae60; font-weight: bold; }
+        .yield-low { color: #e74c3c; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>[생산2팀 생산성 현황]</h1>
+    </header>
+
+    <div class="dashboard-grid">
+        <div class="card">
+            <h2>장비별 가동 점유율 (작업 내역 기준)</h2>
+            <canvas id="machineChart"></canvas>
+        </div>
+
+        <div class="card">
+            <h2>제품/제조번호별 공정 수율 (%)</h2>
+            <div id="yieldTableContainer">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>제품명</th>
+                            <th>제조번호</th>
+                            <th>공정 수율</th>
+                        </tr>
+                    </thead>
+                    <tbody id="yieldTableBody">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTxJoIbArdj4_BDnV6wxNgLd3k55kbagI1rIdqqBBW5WMb63lHFh3K-UWoPpBwbUeRXjt9B5ieNXa05/pub?gid=240982560&single=true&output=csv';
+
+    async function fetchData() {
+        Papa.parse(CSV_URL, {
+            download: true,
+            header: true,
+            complete: function(results) {
+                processData(results.data);
+            }
+        });
+    }
+
+    function processData(data) {
+        const machineCounts = {};
+        const yieldGroups = {};
+
+        data.forEach(row => {
+            // 1. 장비 가동률 로직: '작업내역' 셀에서 장비명 추출 (예: "장비A 가동")
+            // 데이터 형식에 따라 정규표현식 조정 가능
+            const taskDetail = row['작업내역'] || "";
+            const machineMatch = taskDetail.match(/([가-힣\w]+(기|기계|라인|장비))/); 
+            if (machineMatch) {
+                const machineName = machineMatch[0];
+                machineCounts[machineName] = (machineCounts[machineName] || 0) + 1;
+            }
+
+            // 2. 수율 계산 로직: 제품+제조번호로 그룹화
+            const key = `${row['제품명']}_${row['제조번호']}`;
+            if (!yieldGroups[key]) {
+                yieldGroups[key] = { name: row['제품명'], lot: row['제조번호'], weights: [] };
+            }
+            if (row['중량']) {
+                yieldGroups[key].weights.push(parseFloat(row['중량']));
+            }
+        });
+
+        renderMachineChart(machineCounts);
+        renderYieldTable(yieldGroups);
+    }
+
+    function renderMachineChart(counts) {
+        const ctx = document.getElementById('machineChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: Object.keys(counts),
+                datasets: [{
+                    data: Object.values(counts),
+                    backgroundColor: ['#3498db', '#e67e22', '#2ecc71', '#9b59b6', '#f1c40f']
+                }]
+            },
+            options: { responsive: true }
+        });
+    }
+
+    function renderYieldTable(groups) {
+        const tbody = document.getElementById('yieldTableBody');
+        tbody.innerHTML = '';
+
+        for (const key in groups) {
+            const group = groups[key];
+            let yieldVal = 0;
+
+            // 수율 계산: (뒷 공정 무게 / 앞 공정 무게) * 100
+            // 데이터 정렬 순서가 '앞->뒤'라고 가정할 때 마지막/처음 값 비교
+            if (group.weights.length >= 2) {
+                const firstWeight = group.weights[0];
+                const lastWeight = group.weights[group.weights.length - 1];
+                yieldVal = ((lastWeight / firstWeight) * 100).toFixed(2);
+            } else {
+                yieldVal = "데이터 부족";
+            }
+
+            const row = `<tr>
+                <td>${group.name}</td>
+                <td>${group.lot}</td>
+                <td class="${yieldVal >= 98 ? 'yield-high' : 'yield-low'}">${yieldVal}%</td>
+            </tr>`;
+            tbody.innerHTML += row;
+        }
+    }
+
+    fetchData();
+</script>
+
+</body>
+</html>
